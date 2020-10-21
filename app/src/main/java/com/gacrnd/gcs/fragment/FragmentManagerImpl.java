@@ -110,6 +110,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
             };
 
     // Must be accessed while locked.
+    //
     ArrayList<BackStackRecord> mBackStackIndices;
     ArrayList<Integer> mAvailBackStackIndices;
 
@@ -1383,6 +1384,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
 
     public void addFragment(Fragment fragment, boolean moveToStateNow) {
         if (DEBUG) Log.v(TAG, "add: " + fragment);
+        // 放到激活保存队列中
         makeActive(fragment);
         if (!fragment.mDetached) {
             if (mAdded.contains(fragment)) {
@@ -1400,6 +1402,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
                 mNeedMenuInvalidate = true;
             }
             if (moveToStateNow) {
+                // 最终就是去走fragment的生命周期
                 moveToState(fragment);
             }
         }
@@ -1542,7 +1545,9 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
     }
 
     private void checkStateLoss() {
+        // 是否调用了saveAllState
         if (isStateSaved()) {
+            // 如果没有调用，直接抛异常
             throw new IllegalStateException(
                     "Can not perform this action after onSaveInstanceState");
         }
@@ -1578,7 +1583,9 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
             if (mPendingActions == null) {
                 mPendingActions = new ArrayList<>();
             }
+            //加入一次事务中的所有操作
             mPendingActions.add(action);
+            //异步提交事务
             scheduleCommit();
         }
     }
@@ -1605,18 +1612,23 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
 
     public int allocBackStackIndex(BackStackRecord bse) {
         synchronized (this) {
+            //  如果添加事件，只会走if语句，如果释放内存（freeBackStackIndex）就走else语句
             if (mAvailBackStackIndices == null || mAvailBackStackIndices.size() <= 0) {
                 if (mBackStackIndices == null) {
                     mBackStackIndices = new ArrayList<BackStackRecord>();
                 }
+                // 初次，返回索引0
                 int index = mBackStackIndices.size();
                 if (DEBUG) Log.v(TAG, "Setting back stack index " + index + " to " + bse);
+                // 然后将事务添加到返回栈中
                 mBackStackIndices.add(bse);
                 return index;
 
             } else {
+                // 取出最后一个索引值
                 int index = mAvailBackStackIndices.remove(mAvailBackStackIndices.size()-1);
                 if (DEBUG) Log.v(TAG, "Adding back stack index " + index + " with " + bse);
+                // 把mBackStackIndices释放掉的位子放入新添加的事务
                 mBackStackIndices.set(index, bse);
                 return index;
             }
@@ -1650,6 +1662,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
 
     public void freeBackStackIndex(int index) {
         synchronized (this) {
+            // 现在对应的index位子填一个null，然后把index加到mAvailBackStackIndices中
             mBackStackIndices.set(index, null);
             if (mAvailBackStackIndices == null) {
                 mAvailBackStackIndices = new ArrayList<Integer>();
@@ -1731,9 +1744,11 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
         ensureExecReady(true);
 
         boolean didSomething = false;
+        // 生成一个临时的BackStackRecord列表，老的列表就会被清空，重新接受事务
         while (generateOpsForPendingActions(mTmpRecords, mTmpIsPop)) {
             mExecutingActions = true;
             try {
+                // 执行事务
                 removeRedundantOperationsAndExecute(mTmpRecords, mTmpIsPop);
             } finally {
                 cleanupExec();
@@ -1818,6 +1833,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
             final boolean canReorder = records.get(recordNum).mReorderingAllowed;
             if (!canReorder) {
                 // execute all previous transactions
+                // 优化操作，例如先add -> remove -> add，直接一次add即可
                 if (startIndex != recordNum) {
                     executeOpsTogether(records, isRecordPop, startIndex, recordNum);
                 }
@@ -1831,6 +1847,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
                         reorderingEnd++;
                     }
                 }
+                // 真正去执行事务
                 executeOpsTogether(records, isRecordPop, recordNum, reorderingEnd);
                 startIndex = reorderingEnd;
                 recordNum = reorderingEnd - 1;
@@ -1854,16 +1871,19 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
         final boolean allowReordering = records.get(startIndex).mReorderingAllowed;
         boolean addToBackStack = false;
         if (mTmpAddedFragments == null) {
+            // 创建临时的集合
             mTmpAddedFragments = new ArrayList<>();
         } else {
             mTmpAddedFragments.clear();
         }
+        // 将已经加入的fragment放入临时的集合中
         mTmpAddedFragments.addAll(mAdded);
         Fragment oldPrimaryNav = getPrimaryNavigationFragment();
         for (int recordNum = startIndex; recordNum < endIndex; recordNum++) {
             final BackStackRecord record = records.get(recordNum);
             final boolean isPop = isRecordPop.get(recordNum);
             if (!isPop) {
+                // 优化操作，所有操作都变成了Add操作
                 oldPrimaryNav = record.expandOps(mTmpAddedFragments, oldPrimaryNav);
             } else {
                 oldPrimaryNav = record.trackAddedFragmentsInPop(mTmpAddedFragments, oldPrimaryNav);
@@ -1876,6 +1896,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
             FragmentTransition.startTransitions(this, records, isRecordPop, startIndex, endIndex,
                     false);
         }
+        // 真实的执行操作
         executeOps(records, isRecordPop, startIndex, endIndex);
 
         int postponeIndex = endIndex;
@@ -2086,6 +2107,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
                 record.executePopOps(moveToState);
             } else {
                 record.bumpBackStackNesting(1);
+                // 执行
                 record.executeOps();
             }
         }
@@ -2331,6 +2353,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
         endAnimatingAwayFragments();
         execPendingActions();
 
+        //修改状态
         mStateSaved = true;
 
         if (mActive.isEmpty()) {
@@ -2351,10 +2374,14 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
 
                 haveFragments = true;
 
+                // fragment身上的所有成员变量。以后可以复用回来
                 FragmentState fs = new FragmentState(f);
+                // 加入到队列中
                 active.add(fs);
 
+                // 往fs中设置值
                 if (f.mState > Fragment.INITIALIZING && fs.mSavedFragmentState == null) {
+                    // 保存基础状态
                     fs.mSavedFragmentState = saveFragmentBasicState(f);
 
                     if (f.mTargetWho != null) {
@@ -2399,6 +2426,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
         if (size > 0) {
             added = new ArrayList<>(size);
             for (Fragment f : mAdded) {
+                // 保存fragment的唯一标示
                 added.add(f.mWho);
                 if (f.mFragmentManager != this) {
                     throwException(new IllegalStateException(
@@ -2413,6 +2441,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
         }
 
         // Now save back stack.
+        // 下面是保存返回栈
         if (mBackStack != null) {
             size = mBackStack.size();
             if (size > 0) {
@@ -2425,6 +2454,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
             }
         }
 
+        // 把前面存下来的集合打包存在fms中
         FragmentManagerState fms = new FragmentManagerState();
         fms.mActive = active;
         fms.mAdded = added;
@@ -2472,6 +2502,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
                 // destroy it.
                 moveToState(f, Fragment.CREATED, 0, 0, false);
                 f.mRemoving = true;
+                // 创建fragment
                 moveToState(f, Fragment.INITIALIZING, 0, 0, false);
                 continue;
             }
